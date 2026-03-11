@@ -1,0 +1,77 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getUserFromRequest } from "@/lib/auth/server";
+import { getCanvasDocForProject, saveCanvasDocForProject } from "@/lib/projects/server";
+import type { CanvasDocState } from "@/lib/projects/types";
+
+export const runtime = "nodejs";
+
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+function jsonError(status: number, code: string, message: string) {
+  return NextResponse.json({ ok: false, error: { code, message } }, { status });
+}
+
+function jsonOk<T>(data: T, status = 200) {
+  return NextResponse.json({ ok: true, data }, { status });
+}
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return jsonError(401, "UNAUTHORIZED", "请先登录");
+  }
+
+  const { id } = await context.params;
+  const canvas = getCanvasDocForProject(user.id, id);
+  if (!canvas) {
+    return jsonError(404, "PROJECT_NOT_FOUND", "项目不存在");
+  }
+  return jsonOk({ canvas });
+}
+
+export async function PUT(request: NextRequest, context: RouteContext) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return jsonError(401, "UNAUTHORIZED", "请先登录");
+  }
+
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonError(400, "INVALID_JSON", "请求体格式错误");
+  }
+
+  const body = payload as {
+    doc?: CanvasDocState;
+    version?: number;
+    coverThumb?: string;
+  };
+
+  if (typeof body.version !== "number" || body.version < 0) {
+    return jsonError(400, "INVALID_VERSION", "版本号非法");
+  }
+
+  const doc = body.doc;
+  if (!doc || typeof doc !== "object") {
+    return jsonError(400, "INVALID_DOC", "画布数据非法");
+  }
+
+  const { id } = await context.params;
+  const saved = saveCanvasDocForProject({
+    userId: user.id,
+    projectId: id,
+    doc,
+    version: body.version,
+    coverThumb: typeof body.coverThumb === "string" ? body.coverThumb : undefined,
+  });
+
+  if (!saved) {
+    return jsonError(404, "PROJECT_NOT_FOUND", "项目不存在");
+  }
+
+  return jsonOk(saved);
+}

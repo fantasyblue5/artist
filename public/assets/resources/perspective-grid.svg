@@ -1,0 +1,29 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" rx="40" fill="url(#bg)"/>
+  <g opacity="0.28" stroke="#6B87A8" stroke-width="1.5">
+    <path d="M120 180H1080"/>
+    <path d="M120 286H1080"/>
+    <path d="M120 392H1080"/>
+    <path d="M120 498H1080"/>
+    <path d="M120 604H1080"/>
+    <path d="M220 120V680"/>
+    <path d="M380 120V680"/>
+    <path d="M540 120V680"/>
+    <path d="M700 120V680"/>
+    <path d="M860 120V680"/>
+    <path d="M1020 120V680"/>
+  </g>
+  <circle cx="600" cy="400" r="8" fill="#5F789B"/>
+  <g stroke="#5F789B" stroke-opacity="0.46" stroke-width="2">
+    <path d="M600 400L120 120"/>
+    <path d="M600 400L1080 120"/>
+    <path d="M600 400L1080 680"/>
+    <path d="M600 400L120 680"/>
+  </g>
+  <defs>
+    <linearGradient id="bg" x1="156" y1="88" x2="1002" y2="704" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4F8FC"/>
+      <stop offset="1" stop-color="#D5DFEC"/>
+    </linearGradient>
+  </defs>
+</svg>

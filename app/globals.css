@@ -1,0 +1,99 @@
+@import "tailwindcss";
+@import "reactflow/dist/style.css";
+
+:root {
+  color-scheme: light;
+  --background: 212 40% 97%;
+  --foreground: 214 32% 19%;
+  --card: 210 42% 99%;
+  --card-foreground: 214 30% 22%;
+  --primary: 211 47% 46%;
+  --primary-foreground: 210 40% 98%;
+  --muted: 212 32% 93%;
+  --muted-foreground: 214 20% 42%;
+  --border: 213 26% 84%;
+  --ring: 211 47% 46%;
+  --accent: 211 44% 92%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% 10%, rgba(87, 129, 179, 0.1), transparent 34%),
+    radial-gradient(circle at 92% 96%, rgba(175, 198, 226, 0.18), transparent 38%),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+
+.workspace-grid {
+  background-image:
+    linear-gradient(to right, rgba(117, 142, 173, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(117, 142, 173, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.auth-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgba(123, 148, 179, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(123, 148, 179, 0.16) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, black 40%, transparent 92%);
+}
+
+.auth-noise-pattern {
+  background-image:
+    radial-gradient(rgba(102, 131, 166, 0.18) 0.5px, transparent 0.5px),
+    radial-gradient(rgba(169, 191, 218, 0.14) 0.5px, transparent 0.5px);
+  background-size:
+    3px 3px,
+    4px 4px;
+  background-position:
+    0 0,
+    1px 1px;
+}
+
+.auth-hero-iso-float {
+  animation: auth-hero-iso-float 8.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.auth-hero-iso-breathe {
+  animation: auth-hero-iso-breathe 6.6s ease-in-out infinite;
+}
+
+@keyframes auth-hero-iso-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -8px, 0) rotate(1.4deg);
+  }
+}
+
+@keyframes auth-hero-iso-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.29;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-hero-iso-float,
+  .auth-hero-iso-breathe {
+    animation: none !important;
+  }
+}
