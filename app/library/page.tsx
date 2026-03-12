@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, Info, PanelRightClose, PanelRightOpen, RefreshCw } from "lucide-react";
 import { AssetDetailDrawer } from "@/components/assets/AssetDetailDrawer";
 import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetSidebar } from "@/components/assets/AssetSidebar";
@@ -9,7 +9,6 @@ import { AssetToolbar } from "@/components/assets/AssetToolbar";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { GraphCanvas } from "@/components/graph/GraphCanvas";
 import { GraphDetailPanel } from "@/components/graph/GraphDetailPanel";
-import { GraphSidebar } from "@/components/graph/GraphSidebar";
 import { GraphToolbar } from "@/components/graph/GraphToolbar";
 import { KnowledgeGraphHelpDialog } from "@/components/library/KnowledgeGraphHelpDialog";
 import { ResourceHeader } from "@/components/resource/ResourceHeader";
@@ -19,7 +18,7 @@ import { buildAssetMockData, filterAssets } from "@/lib/asset-data";
 import { GRAPH_ROOT_ID, buildGraphData, getGraphSearchResults } from "@/lib/graph-data";
 import { buildRadialTreeLayout, collectAncestorIds, collectDescendantIds } from "@/lib/graph-layout";
 import { getFavorites, toggleFavorite } from "@/lib/library/storage";
-import type { AssetCategory, AssetRecord, AssetSortMode, GraphData, GraphNodePosition, GraphNodeRecord, GraphSourceNode, ResourceMode } from "@/lib/resource-types";
+import type { AssetCategory, AssetRecord, AssetSortMode, GraphData, GraphNodePosition, GraphSourceNode, ResourceMode } from "@/lib/resource-types";
 
 type ViewportCommand =
   | { type: "center-root"; tick: number }
@@ -27,6 +26,7 @@ type ViewportCommand =
   | { type: "fit-all"; tick: number };
 
 const allLevels = [1, 2, 3, 4, 5];
+const GRAPH_LEVEL_GAP = 310;
 
 function updateRecentIds(prev: string[], nextId: string) {
   return [nextId, ...prev.filter((id) => id !== nextId)].slice(0, 8);
@@ -44,7 +44,7 @@ export default function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string>(GRAPH_ROOT_ID);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [selectedLevels, setSelectedLevels] = useState<number[]>(allLevels);
   const [expandedIds, setExpandedIds] = useState<string[]>([GRAPH_ROOT_ID]);
@@ -112,7 +112,6 @@ export default function LibraryPage() {
   }, [graphData]);
 
   const selectedNode = graphData.nodeMap[selectedNodeId] ?? null;
-  const favoriteNodes = useMemo(() => graphData.nodes.filter((node) => node.favorite), [graphData.nodes]);
 
   const graphSearchResults = useMemo(() => (mode === "graph" ? getGraphSearchResults(graphData, globalQuery) : []), [globalQuery, graphData, mode]);
 
@@ -185,15 +184,28 @@ export default function LibraryPage() {
     }
 
     const visibleIds = graphVisibleNodes.map((node) => node.id);
-    const layout = buildRadialTreeLayout(graphData.rootId, graphData.nodeMap, visibleIds, { levelGap: 220 });
+    const layout = buildRadialTreeLayout(graphData.rootId, graphData.nodeMap, visibleIds, {
+      levelGap: GRAPH_LEVEL_GAP,
+      rootRadius: 24,
+      anglePadding: 0.12,
+      nodeWidth: 188,
+      minAngleGap: 0.24,
+      branchFanAngle: 1.18,
+    });
 
     setNodePositions((prev) => {
+      const next: Record<string, GraphNodePosition> = {};
       let changed = false;
-      const next = { ...prev };
 
       visibleIds.forEach((nodeId) => {
-        if (!next[nodeId] && layout[nodeId]) {
-          next[nodeId] = layout[nodeId];
+        const position = layout[nodeId] ?? prev[nodeId];
+        if (!position) {
+          return;
+        }
+
+        next[nodeId] = position;
+        const previous = prev[nodeId];
+        if (!previous || previous.x !== position.x || previous.y !== position.y) {
           changed = true;
         }
       });
@@ -210,6 +222,12 @@ export default function LibraryPage() {
       setSelectedNodeId(graphData.rootId);
     }
   }, [graphData.rootId, graphVisibleIds, mode, selectedNodeId]);
+
+  useEffect(() => {
+    if (mode === "graph" && selectedNodeId !== GRAPH_ROOT_ID) {
+      setDetailOpen(true);
+    }
+  }, [mode, selectedNodeId]);
 
   const selectedPathIds = useMemo(() => new Set(collectAncestorIds(selectedNodeId, graphData.nodeMap)), [graphData.nodeMap, selectedNodeId]);
   const matchedNodeIds = useMemo(() => new Set(graphSearchResults.map((item) => item.id)), [graphSearchResults]);
@@ -280,12 +298,6 @@ export default function LibraryPage() {
     setFavoriteNodeIds(toggleFavorite(nodeId));
   };
 
-  const handleOpenAssetsForNode = (nodeId: string) => {
-    setMode("assets");
-    setAssetNodeFilterId(nodeId);
-    setAssetCategory("全部素材");
-  };
-
   const handleOpenGraphForNode = (nodeId: string) => {
     setMode("graph");
     setAssetNodeFilterId(null);
@@ -310,7 +322,14 @@ export default function LibraryPage() {
 
   const handleAutoLayout = () => {
     const visibleIds = graphVisibleNodes.map((node) => node.id);
-    const layout = buildRadialTreeLayout(graphData.rootId, graphData.nodeMap, visibleIds, { levelGap: 220 });
+    const layout = buildRadialTreeLayout(graphData.rootId, graphData.nodeMap, visibleIds, {
+      levelGap: GRAPH_LEVEL_GAP,
+      rootRadius: 24,
+      anglePadding: 0.12,
+      nodeWidth: 188,
+      minAngleGap: 0.24,
+      branchFanAngle: 1.18,
+    });
 
     setNodePositions((prev) => {
       const next = { ...prev };
@@ -333,7 +352,6 @@ export default function LibraryPage() {
           id,
           label: node.label,
           count: node.count,
-          favorite: node.favorite,
         };
       }),
     [graphData.levelOneIds, graphData.nodeMap],
@@ -352,8 +370,6 @@ export default function LibraryPage() {
               searchQuery={globalQuery}
               onSearchChange={setGlobalQuery}
               onOpenHelp={() => setHelpOpen(true)}
-              favoriteCount={favoriteNodeIds.length + assets.filter((asset) => asset.isFavorite).length}
-              recentCount={recentIds.length}
             />
 
             {loading ? (
@@ -374,30 +390,16 @@ export default function LibraryPage() {
             ) : null}
 
             {!loading && mode === "graph" ? (
-              <div className="flex min-h-[760px] flex-col gap-3">
-                <div className="flex min-h-[720px] flex-col gap-4 xl:flex-row">
-                  <aside className="xl:w-[300px]">
-                    <GraphSidebar
-                      visibleCount={graphVisibleNodes.length}
-                      totalNodes={graphData.nodes.length}
-                      leafCount={graphData.totalLeafCount}
-                      branches={branchItems}
-                      selectedBranchId={selectedBranchId}
-                      onSelectBranch={setSelectedBranchId}
-                      favoriteNodes={favoriteNodes.map((node) => ({
-                        id: node.id,
-                        label: node.label,
-                        count: node.count,
-                        favorite: node.favorite,
-                      }))}
-                    />
-                  </aside>
-
-                  <section className="min-h-0 flex-1">
+              <div className="flex min-h-[calc(100vh-172px)] flex-col gap-2">
+                <section className="min-h-0 flex-1">
+                  <div className="rounded-[30px] border border-[hsl(var(--border)/0.62)] bg-[linear-gradient(180deg,rgba(249,252,255,0.9),rgba(244,248,252,0.84))] p-3 shadow-[0_20px_48px_rgba(34,55,82,0.06)] backdrop-blur">
                     <GraphToolbar
                       visibleCount={graphVisibleNodes.length}
                       levelFilters={allLevels}
                       selectedLevels={selectedLevels}
+                      branches={branchItems}
+                      selectedBranchId={selectedBranchId}
+                      onSelectBranch={setSelectedBranchId}
                       onToggleLevel={(level) => {
                         setSelectedLevels((prev) => (prev.includes(level) ? prev.filter((item) => item !== level) : [...prev, level].sort((a, b) => a - b)));
                       }}
@@ -409,36 +411,61 @@ export default function LibraryPage() {
                         setViewportCommand({ type: "center-root", tick: Date.now() });
                       }}
                     />
-                    <div className="h-[calc(100%-60px)] min-h-[640px]">
+                    <div className="relative h-[calc(100vh-290px)] min-h-[700px]">
                       <GraphCanvas
                         rootId={graphData.rootId}
                         nodes={graphVisibleNodes}
                         edges={graphVisibleEdges}
                         nodeMap={graphData.nodeMap}
                         selectedNodeId={selectedNodeId}
-                        hoveredNodeId={hoveredNodeId}
                         pathNodeIds={selectedPathIds}
                         matchedNodeIds={matchedNodeIds}
                         viewportCommand={viewportCommand}
                         nodePositions={nodePositions}
                         onSelectNode={handleSelectNode}
-                        onHoverNode={setHoveredNodeId}
                         onToggleNode={handleToggleNode}
                         onNodePositionChange={handleNodePositionChange}
                       />
-                    </div>
-                  </section>
 
-                  <aside className="xl:w-[390px]">
-                    <GraphDetailPanel
-                      node={selectedNode}
-                      nodeMap={graphData.nodeMap}
-                      onSelectNode={handleSelectNode}
-                      onToggleFavorite={handleToggleNodeFavorite}
-                      onOpenAssets={handleOpenAssetsForNode}
-                    />
-                  </aside>
-                </div>
+                      <div className="absolute right-4 top-4 z-30 flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={`h-10 rounded-2xl px-4 shadow-[0_12px_26px_rgba(34,56,84,0.08)] backdrop-blur ${
+                            detailOpen ? "border-[hsl(var(--primary)/0.32)] bg-[hsl(var(--accent)/0.94)]" : "bg-white/88"
+                          }`}
+                          onClick={() => setDetailOpen((prev) => !prev)}
+                        >
+                          {detailOpen ? <PanelRightClose className="mr-1.5 h-4 w-4" /> : <PanelRightOpen className="mr-1.5 h-4 w-4" />}
+                          节点详情
+                        </Button>
+                      </div>
+
+                      {!detailOpen ? (
+                        <div className="pointer-events-none absolute bottom-5 right-5 z-20 hidden rounded-2xl border border-[hsl(var(--border)/0.66)] bg-white/78 px-4 py-3 text-sm text-[hsl(var(--muted-foreground))] shadow-[0_14px_30px_rgba(34,56,84,0.08)] backdrop-blur md:block">
+                          <div className="flex items-center gap-2">
+                            <Info className="h-4 w-4" />
+                            单击节点查看解释与子节点
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {detailOpen ? (
+                        <div className="absolute inset-y-4 right-4 z-30 w-[320px] max-w-[calc(100%-2rem)]">
+                          <GraphDetailPanel
+                            node={selectedNode}
+                            nodeMap={graphData.nodeMap}
+                            onSelectNode={handleSelectNode}
+                            onToggleFavorite={handleToggleNodeFavorite}
+                            onClose={() => setDetailOpen(false)}
+                            className="h-full"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
               </div>
             ) : null}
 

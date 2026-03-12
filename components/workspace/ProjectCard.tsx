@@ -37,14 +37,14 @@ export function ProjectCard({
   onDelete,
 }: ProjectCardProps) {
   return (
-    <Card className="group relative overflow-hidden rounded-2xl border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[0_8px_24px_rgba(46,70,99,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(46,70,99,0.12)]">
+    <Card className="group relative overflow-hidden rounded-[22px] border-[hsl(var(--border)/0.88)] bg-[hsl(var(--card)/0.92)] shadow-[0_4px_14px_rgba(46,70,99,0.06)] transition hover:-translate-y-0.5 hover:border-[hsl(var(--primary)/0.28)] hover:shadow-[0_10px_22px_rgba(46,70,99,0.1)]">
       <button
         type="button"
         onClick={() => onOpen(project.id)}
         className="block w-full cursor-pointer text-left"
       >
         <div
-          className={compact ? "h-28" : "h-36"}
+          className={compact ? "h-24" : "h-28"}
           style={{
             background: project.coverThumb
               ? `center / cover no-repeat url(${project.coverThumb})`
@@ -54,19 +54,19 @@ export function ProjectCard({
           {!project.coverThumb ? <div className="h-full w-full bg-[radial-gradient(circle_at_16%_20%,rgba(255,255,255,0.35),transparent_38%),repeating-linear-gradient(to_right,rgba(113,141,176,0.08)_0,rgba(113,141,176,0.08)_1px,transparent_1px,transparent_20px),repeating-linear-gradient(to_bottom,rgba(113,141,176,0.08)_0,rgba(113,141,176,0.08)_1px,transparent_1px,transparent_20px)]" /> : null}
         </div>
 
-        <div className="space-y-2 px-4 py-3">
-          <div className="line-clamp-1 text-sm font-semibold text-[hsl(var(--foreground))]">{project.name}</div>
+        <div className="space-y-2 px-3.5 py-3">
+          <div className="line-clamp-1 text-sm font-semibold leading-5 text-[hsl(var(--foreground))]">{project.name}</div>
 
           <div className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
             <Clock3 className="h-3.5 w-3.5" />
             <span className="line-clamp-1">{formatDate(project.lastOpenedAt ?? project.updatedAt)}</span>
           </div>
 
-          <div className="flex flex-wrap gap-1">
+          <div className="flex min-h-6 flex-wrap gap-1">
             {project.tags.slice(0, 3).map((tag) => (
               <span
                 key={tag}
-                className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--accent))] px-2 py-0.5 text-[11px] text-[hsl(var(--muted-foreground))]"
+                className="rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--accent)/0.7)] px-2 py-0.5 text-[11px] text-[hsl(var(--muted-foreground))]"
               >
                 {tag}
               </span>
@@ -75,11 +75,11 @@ export function ProjectCard({
         </div>
       </button>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex translate-y-2 items-center justify-end gap-1 bg-gradient-to-t from-[hsl(var(--card)/0.97)] via-[hsl(var(--card)/0.9)] to-transparent px-2 pb-2 opacity-0 transition-all group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+      <div className="pointer-events-none absolute right-2 top-2 flex translate-y-1 items-center gap-1 rounded-full border border-[hsl(var(--border)/0.7)] bg-[hsl(var(--card)/0.86)] p-1 opacity-0 shadow-[0_4px_14px_rgba(46,70,99,0.1)] backdrop-blur transition-all group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
         <Button
           variant="outline"
           size="icon"
-          className="h-7 w-7 rounded-lg"
+          className="h-7 w-7 rounded-full border-none bg-transparent shadow-none"
           onClick={() => onOpen(project.id)}
           title="继续编辑"
         >
@@ -88,7 +88,7 @@ export function ProjectCard({
         <Button
           variant="outline"
           size="icon"
-          className="h-7 w-7 rounded-lg"
+          className="h-7 w-7 rounded-full border-none bg-transparent shadow-none"
           onClick={() => onRename(project.id)}
           title="重命名"
         >
@@ -97,7 +97,7 @@ export function ProjectCard({
         <Button
           variant="outline"
           size="icon"
-          className="h-7 w-7 rounded-lg"
+          className="h-7 w-7 rounded-full border-none bg-transparent shadow-none"
           onClick={() => onDuplicate(project.id)}
           title="复制"
         >
@@ -106,7 +106,7 @@ export function ProjectCard({
         <Button
           variant="outline"
           size="icon"
-          className="h-7 w-7 rounded-lg"
+          className="h-7 w-7 rounded-full border-none bg-transparent shadow-none"
           onClick={() => onDelete(project.id)}
           title="删除"
         >

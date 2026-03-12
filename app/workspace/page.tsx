@@ -3,15 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { AuthGuard } from "@/components/auth/AuthGuard";
-import { ActivityDrawer } from "@/components/workspace/ActivityDrawer";
 import { FiltersBar, type SortBy, type TimeRange } from "@/components/workspace/FiltersBar";
 import { NewProjectModal } from "@/components/workspace/NewProjectModal";
 import { ProjectCard } from "@/components/workspace/ProjectCard";
 import { TemplateModal } from "@/components/workspace/TemplateModal";
 import { Topbar } from "@/components/workspace/Topbar";
-import { addActivity, listActivity, type ActivityItem } from "@/lib/storage/activity";
+import { addActivity } from "@/lib/storage/activity";
 import {
   createProject,
   deleteProject,
@@ -22,22 +21,8 @@ import {
   updateProject,
   type CreateProjectInput,
   type Project,
-  type ProjectPreset,
 } from "@/lib/storage/projects";
-import { ArrowRight, FolderPlus, Import, LayoutGrid, PlusCircle, Sparkles } from "lucide-react";
-
-const quickPresets: Array<{ key: ProjectPreset; label: string; tag: string }> = [
-  { key: "1:1", label: "社交封面", tag: "封面" },
-  { key: "4:3", label: "演示视觉", tag: "演示" },
-  { key: "16:9", label: "横版叙事", tag: "横版" },
-  { key: "A4", label: "文档排版", tag: "文档" },
-];
-
-const mockGenerates: ActivityItem[] = [
-  { id: "g1", kind: "generate", title: "山水配色方案草稿", createdAt: Date.now() - 1000 * 60 * 80 },
-  { id: "g2", kind: "generate", title: "构图分析建议", createdAt: Date.now() - 1000 * 60 * 220 },
-  { id: "g3", kind: "generate", title: "风格迁移预览", createdAt: Date.now() - 1000 * 60 * 380 },
-];
+import { FolderPlus, Import, LayoutGrid, PlusCircle, Sparkles } from "lucide-react";
 
 function formatBaseName(fileName: string) {
   const idx = fileName.lastIndexOf(".");
@@ -65,12 +50,9 @@ export default function WorkspacePage() {
   const dragCounterRef = useRef(0);
 
   const [projects, setProjects] = useState<Project[]>([]);
-  const [imports, setImports] = useState<ActivityItem[]>([]);
-  const [generates, setGenerates] = useState<ActivityItem[]>([]);
 
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
 
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
@@ -88,17 +70,9 @@ export default function WorkspacePage() {
     setProjects(result.data.projects);
   }, []);
 
-  const refreshActivity = useCallback(() => {
-    const importItems = listActivity("import").slice(0, 10);
-    const generateItems = listActivity("generate").slice(0, 10);
-    setImports(importItems);
-    setGenerates(generateItems.length > 0 ? generateItems : mockGenerates);
-  }, []);
-
   useEffect(() => {
     void refreshProjects();
-    refreshActivity();
-  }, [refreshActivity, refreshProjects]);
+  }, [refreshProjects]);
 
   useEffect(() => {
     const onRefresh = () => {
@@ -128,14 +102,7 @@ export default function WorkspacePage() {
     [projects],
   );
 
-  const recents = useMemo(
-    () =>
-      [...projects]
-        .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))
-        .filter((project) => Boolean(project.lastOpenedAt))
-        .slice(0, 10),
-    [projects],
-  );
+  const hasProjects = projects.length > 0;
 
   const filteredProjects = useMemo(() => {
     const now = Date.now();
@@ -267,7 +234,6 @@ export default function WorkspacePage() {
     await touchOpened(created.data.project.id);
     addActivity("import", `导入 ${file.name}`);
     await refreshProjects();
-    refreshActivity();
     router.push(`/editor?projectId=${created.data.project.id}`);
   };
 
@@ -306,109 +272,79 @@ export default function WorkspacePage() {
       >
         <Topbar />
 
-        <main className="h-[calc(100vh-64px)] overflow-y-auto px-4 py-4 md:px-6">
-          <div className="mx-auto grid max-w-[1680px] grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="space-y-4">
-              <Card className="rounded-3xl border-[hsl(var(--border))] bg-[hsl(var(--card)/0.98)]">
-                <CardHeader>
-                  <CardTitle className="text-base">快速开始</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 pb-4">
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => setNewModalOpen(true)}>
-                      <PlusCircle className="mr-1.5 h-4 w-4" />
-                      新建项目
-                    </Button>
-                    <Button variant="outline" onClick={() => setTemplateModalOpen(true)}>
-                      <Sparkles className="mr-1.5 h-4 w-4" />
-                      从模板创建
-                    </Button>
-                    <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                      <Import className="mr-1.5 h-4 w-4" />
-                      导入图片/文件
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg"
-                      className="hidden"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file) {
-                          return;
-                        }
-                        await handleImportFile(file);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </div>
+        <main className="h-[calc(100vh-64px)] overflow-y-auto px-4 py-4 md:px-6 md:py-5">
+          <div className="mx-auto max-w-[1360px] space-y-6">
+            <section className="space-y-3">
+              <div>
+                <h1 className="text-base font-semibold tracking-tight text-[hsl(var(--foreground))]">快速开始</h1>
+                <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
+                  直接进入新建、模板或导入流程。
+                </p>
+              </div>
 
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    {quickPresets.map((preset) => (
-                      <button
-                        key={preset.key}
-                        type="button"
-                        onClick={() =>
-                          void createAndOpen({
-                            name: `${preset.label} 项目`,
-                            tags: [preset.tag],
-                          })
-                        }
-                        className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--accent)/0.45)] p-3 text-left transition hover:border-[hsl(var(--primary)/0.45)] hover:bg-[hsl(var(--accent))]"
-                        title={preset.tag}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="text-sm font-semibold text-[hsl(var(--foreground))]">{preset.label}</div>
-                          <span className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card)/0.7)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                            {preset.tag}
-                          </span>
-                        </div>
-                        <div className="mt-2 inline-flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
-                          一键创建 <ArrowRight className="h-3 w-3" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <Button
+                  className="h-12 rounded-2xl px-6 shadow-[0_10px_24px_rgba(73,111,156,0.22)]"
+                  onClick={() => setNewModalOpen(true)}
+                >
+                  <PlusCircle className="mr-1.5 h-4 w-4" />
+                  新建项目
+                </Button>
 
-              <Card className="rounded-3xl border-[hsl(var(--border))]">
-                <CardHeader>
-                  <CardTitle className="text-base">最近打开</CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4">
-                  {recents.length > 0 ? (
-                    <div className="flex gap-3 overflow-x-auto pb-1">
-                      {recents.map((project) => (
-                        <div key={project.id} className="min-w-[240px] max-w-[260px] flex-1">
-                          <ProjectCard
-                            compact
-                            project={project}
-                          onOpen={(id) => void openProject(id)}
-                          onRename={(id) => void handleRename(id)}
-                          onDuplicate={(id) => void handleDuplicate(id)}
-                          onDelete={(id) => void handleDelete(id)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--accent)/0.4)] p-6 text-sm text-[hsl(var(--muted-foreground))]">
-                      还没有最近项目，点击新建开始创作。
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                <div className="flex flex-1 flex-col gap-2 sm:flex-row">
+                  <Button
+                    variant="outline"
+                    className="h-11 flex-1 justify-center rounded-2xl bg-[hsl(var(--card)/0.82)]"
+                    onClick={() => setTemplateModalOpen(true)}
+                  >
+                    <Sparkles className="mr-1.5 h-4 w-4" />
+                    从模板创建
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-11 flex-1 justify-center rounded-2xl bg-[hsl(var(--card)/0.82)]"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Import className="mr-1.5 h-4 w-4" />
+                    导入图片/文件
+                  </Button>
+                </div>
 
-              <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold">我的项目</h2>
-                  <div className="inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] px-2 py-1 text-xs text-[hsl(var(--muted-foreground))]">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  className="hidden"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) {
+                      return;
+                    }
+                    await handleImportFile(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-4 border-t border-[hsl(var(--border)/0.75)] pt-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight text-[hsl(var(--foreground))]">我的项目</h2>
+                  <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
+                    按最近编辑排序，支持搜索、筛选与快速管理。
+                  </p>
+                </div>
+
+                {hasProjects ? (
+                  <div className="inline-flex items-center gap-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--card)/0.76)] px-3 py-1.5 text-xs text-[hsl(var(--muted-foreground))]">
                     <LayoutGrid className="h-3.5 w-3.5" />
                     {filteredProjects.length} 个结果
                   </div>
-                </div>
+                ) : null}
+              </div>
 
+              {hasProjects ? (
                 <FiltersBar
                   queryInput={queryInput}
                   onQueryInputChange={setQueryInput}
@@ -425,51 +361,58 @@ export default function WorkspacePage() {
                   onSortByChange={setSortBy}
                   onClearFilters={clearFilters}
                 />
+              ) : null}
 
-                {filteredProjects.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {filteredProjects.map((project) => (
-                      <ProjectCard
-                        key={project.id}
-                        project={project}
-                        onOpen={(id) => void openProject(id)}
-                        onRename={(id) => void handleRename(id)}
-                        onDuplicate={(id) => void handleDuplicate(id)}
-                        onDelete={(id) => void handleDelete(id)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <Card className="rounded-2xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-                    <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
-                      <FolderPlus className="h-7 w-7 text-[hsl(var(--muted-foreground))]" />
-                      <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                        没有匹配项目，尝试清空筛选或新建项目。
-                      </p>
-                      <div className="flex gap-2">
-                        <Button onClick={() => setNewModalOpen(true)}>新建项目</Button>
-                        <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                          导入图片
+              {filteredProjects.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {filteredProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onOpen={(id) => void openProject(id)}
+                      onRename={(id) => void handleRename(id)}
+                      onDuplicate={(id) => void handleDuplicate(id)}
+                      onDelete={(id) => void handleDelete(id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <Card className="rounded-[24px] border-dashed border-[hsl(var(--border))] bg-[hsl(var(--card)/0.74)] shadow-none">
+                  <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                    <FolderPlus className="h-7 w-7 text-[hsl(var(--muted-foreground))]" />
+                    <p className="max-w-lg text-sm leading-6 text-[hsl(var(--muted-foreground))]">
+                      {hasProjects
+                        ? "当前筛选条件下没有匹配项目。可以清空筛选，或直接新建一个项目继续工作。"
+                        : "还没有项目。从空白项目、模板或图片导入开始，首页只保留关键工作流入口。"}
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button onClick={() => setNewModalOpen(true)}>
+                        <PlusCircle className="mr-1.5 h-4 w-4" />
+                        新建项目
+                      </Button>
+                      {hasProjects ? (
+                        <Button variant="outline" onClick={clearFilters}>
+                          清空筛选
                         </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </section>
-            </div>
-
-            <div className="hidden xl:block" />
+                      ) : (
+                        <>
+                          <Button variant="outline" onClick={() => setTemplateModalOpen(true)}>
+                            <Sparkles className="mr-1.5 h-4 w-4" />
+                            选择模板
+                          </Button>
+                          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                            <Import className="mr-1.5 h-4 w-4" />
+                            导入图片
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </section>
           </div>
         </main>
-
-        <ActivityDrawer
-          open={activityOpen}
-          onOpenChange={setActivityOpen}
-          recentProjects={recents}
-          recentImports={imports}
-          recentGenerates={generates}
-          onOpenProject={(id) => void openProject(id)}
-        />
 
         <NewProjectModal open={newModalOpen} onOpenChange={setNewModalOpen} onCreate={createAndOpen} />
         <TemplateModal

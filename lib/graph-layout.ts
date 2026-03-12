@@ -10,6 +10,9 @@ type LayoutOptions = {
   rootRadius?: number;
   anglePadding?: number;
   startAngle?: number;
+  nodeWidth?: number;
+  minAngleGap?: number;
+  branchFanAngle?: number;
 };
 
 function getVisibleChildren(node: GraphNodeRecord, visibleSet: Set<string>) {
@@ -57,8 +60,17 @@ export function buildRadialTreeLayout(
   const rootRadius = options.rootRadius ?? 0;
   const anglePadding = options.anglePadding ?? 0.06;
   const startAngle = options.startAngle ?? -Math.PI / 2;
+  const nodeWidth = options.nodeWidth ?? 220;
+  const explicitMinAngleGap = options.minAngleGap;
+  const branchFanAngle = options.branchFanAngle ?? 1.18;
+  const leafCountCache = new Map<string, number>();
 
   const countLeaves = (nodeId: string): number => {
+    const cached = leafCountCache.get(nodeId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     const node = nodeMap[nodeId];
     if (!node) {
       return 0;
@@ -66,10 +78,13 @@ export function buildRadialTreeLayout(
 
     const children = getVisibleChildren(node, visibleSet);
     if (children.length === 0) {
+      leafCountCache.set(nodeId, 1);
       return 1;
     }
 
-    return children.reduce((sum, childId) => sum + countLeaves(childId), 0);
+    const leafCount = children.reduce((sum, childId) => sum + countLeaves(childId), 0);
+    leafCountCache.set(nodeId, leafCount);
+    return leafCount;
   };
 
   const place = (nodeId: string, level: number, angleFrom: number, angleTo: number) => {
@@ -92,18 +107,34 @@ export function buildRadialTreeLayout(
     }
 
     const totalLeaves = children.reduce((sum, childId) => sum + countLeaves(childId), 0);
-    let cursor = angleFrom;
+    const nextRadius = levelGap * (level + 1);
+    const minGap = explicitMinAngleGap ?? Math.min(0.88, nodeWidth / Math.max(nextRadius, 1) + anglePadding * 0.55);
+    const availableSpan = angleTo - angleFrom;
+    let childFrom = angleFrom;
+    let childTo = angleTo;
+
+    if (level > 0) {
+      const minimumSpan = Math.max(children.length * minGap, minGap * 1.2);
+      const preferredSpan = Math.min(branchFanAngle, minimumSpan + Math.log(totalLeaves + 1) * 0.12);
+      const centeredSpan = Math.min(availableSpan, Math.max(minimumSpan, preferredSpan));
+      childFrom = angle - centeredSpan / 2;
+      childTo = angle + centeredSpan / 2;
+    }
+
+    let cursor = childFrom;
 
     children.forEach((childId) => {
       const ratio = countLeaves(childId) / Math.max(1, totalLeaves);
-      const span = (angleTo - angleFrom) * ratio;
-      const childFrom = cursor + Math.min(anglePadding, span * 0.16);
-      const childTo = cursor + span - Math.min(anglePadding, span * 0.16);
-      place(childId, level + 1, childFrom, childTo);
+      const span = (childTo - childFrom) * ratio;
+      const padding = Math.min(anglePadding, span * 0.18);
+      const nextFrom = cursor + padding;
+      const nextTo = cursor + span - padding;
+      place(childId, level + 1, nextFrom, nextTo);
       cursor += span;
     });
   };
 
   place(rootId, 0, startAngle, startAngle + Math.PI * 2);
+
   return positions;
 }
