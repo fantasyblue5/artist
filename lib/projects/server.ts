@@ -38,6 +38,12 @@ function normalizeCanvasDoc(input: unknown): CanvasDocState {
     objects: Array.isArray(raw.objects) ? (raw.objects as CanvasDocState["objects"]) : [],
     strokes: Array.isArray(raw.strokes) ? (raw.strokes as CanvasDocState["strokes"]) : [],
     activeFrameId: typeof raw.activeFrameId === "string" ? raw.activeFrameId : null,
+    historyItems: Array.isArray(raw.historyItems)
+      ? (raw.historyItems as CanvasDocState["historyItems"])
+      : [],
+    analysisConversations: Array.isArray(raw.analysisConversations)
+      ? (raw.analysisConversations as CanvasDocState["analysisConversations"])
+      : [],
   };
 }
 

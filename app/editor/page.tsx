@@ -1,15 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { WorkspaceLayout } from "@/components/workspace/WorkspaceLayout";
 import { getProjectById, touchOpened } from "@/lib/storage/projects";
 
 export default function EditorPage() {
-  const searchParams = useSearchParams();
-  const projectId = searchParams.get("projectId");
+  const [projectId, setProjectId] = useState<string | undefined>(undefined);
   const [projectName, setProjectName] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const nextProjectId = params.get("projectId")?.trim() || undefined;
+    setProjectId(nextProjectId);
+  }, []);
 
   useEffect(() => {
     if (!projectId) {

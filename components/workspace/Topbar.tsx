@@ -62,7 +62,7 @@ export function Topbar({ projectName, saveStatusText }: TopbarProps) {
   }, [refreshUser]);
 
   return (
-    <header className="h-16 border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/0.94)] px-4 backdrop-blur md:px-6">
+    <header className="relative z-[80] h-16 overflow-visible border-b border-[hsl(var(--border))] bg-[hsl(var(--card)/0.94)] px-4 backdrop-blur md:px-6">
       <div className="flex h-16 w-full items-center gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--accent))] text-[hsl(var(--primary))]">

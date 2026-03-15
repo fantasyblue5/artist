@@ -1,6 +1,55 @@
 @import "tailwindcss";
 @import "reactflow/dist/style.css";
 
+@keyframes workspace-gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes workspace-loader-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes workspace-loader-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes workspace-loader-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes workspace-loader-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0);
+  }
+}
+
 :root {
   color-scheme: light;
   --background: 212 40% 97%;

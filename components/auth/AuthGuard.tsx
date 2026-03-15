@@ -1,7 +1,7 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getMe } from "@/lib/storage/auth";
 
 type AuthGuardProps = {
@@ -10,20 +10,17 @@ type AuthGuardProps = {
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
-
-  const nextPath = useMemo(() => {
-    const search = searchParams.toString();
-    return `${pathname}${search ? `?${search}` : ""}`;
-  }, [pathname, searchParams]);
 
   useEffect(() => {
     let active = true;
 
     const verify = async () => {
       setReady(false);
+      const nextPath =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : "/";
       const result = await getMe();
       if (!active) {
         return;
@@ -42,7 +39,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     return () => {
       active = false;
     };
-  }, [nextPath, router]);
+  }, [router]);
 
   if (!ready) {
     return (

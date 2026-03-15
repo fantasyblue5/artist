@@ -12,12 +12,33 @@ type UserMenuProps = {
   onUserUpdated?: (user: AuthUser) => void;
 };
 
+function getAvatarFallback(user: AuthUser | null) {
+  const initials = user?.initials?.trim();
+  if (initials) {
+    return initials.slice(0, 2);
+  }
+
+  const source = user?.displayName?.trim() || user?.email?.split("@")[0]?.trim() || "";
+  const compact = source.replace(/\s+/g, "");
+  if (/[\u3400-\u9fff]/.test(compact)) {
+    return compact.slice(0, 2);
+  }
+
+  const alnum = compact.replace(/[^A-Za-z0-9]/g, "");
+  if (alnum.length >= 2) {
+    return alnum.slice(0, 2).toUpperCase();
+  }
+
+  return (alnum[0] ?? compact[0] ?? "账").toUpperCase();
+}
+
 export function UserMenu({ user, onUserUpdated }: UserMenuProps) {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const avatarFallback = getAvatarFallback(user);
 
   useEffect(() => {
     if (!open) {
@@ -60,7 +81,7 @@ export function UserMenu({ user, onUserUpdated }: UserMenuProps) {
 
   return (
     <>
-      <div ref={rootRef} className="relative">
+      <div ref={rootRef} className="relative z-[120]">
         <button
           type="button"
           onClick={() => setOpen((prev) => !prev)}
@@ -69,14 +90,14 @@ export function UserMenu({ user, onUserUpdated }: UserMenuProps) {
           aria-expanded={open}
         >
           <Avatar className="h-10 w-10 border border-[hsl(var(--border))] bg-[hsl(var(--accent))] text-sm font-semibold">
-            <AvatarFallback>{user?.initials ?? "?"}</AvatarFallback>
+            <AvatarFallback>{avatarFallback}</AvatarFallback>
           </Avatar>
         </button>
 
         {open ? (
           <div
             role="menu"
-            className="absolute right-0 z-50 mt-2 w-60 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1.5 shadow-[0_14px_34px_rgba(44,70,99,0.16)]"
+            className="absolute right-0 top-full z-[140] mt-2 w-60 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1.5 shadow-[0_14px_34px_rgba(44,70,99,0.16)]"
           >
             <div className="rounded-xl px-3 py-2">
               <div className="text-[11px] text-[hsl(var(--muted-foreground))]">当前账号</div>

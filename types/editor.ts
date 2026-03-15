@@ -66,4 +66,17 @@ export type AnnotationObject = {
   index: number;
 };
 
-export type EditorObject = FrameObject | TextObject | AnnotationObject;
+export type ImageObject = {
+  id: string;
+  type: "image";
+  frameId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  src: string;
+  alt?: string;
+  generationSlot?: "inspiration";
+};
+
+export type EditorObject = FrameObject | TextObject | AnnotationObject | ImageObject;

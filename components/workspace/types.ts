@@ -7,6 +7,7 @@ export type ToolKey =
 
 export type HistoryItem = {
   id: string;
-  summary: string;
+  imageSrc: string;
+  prompt?: string;
   createdAt: string;
 };

@@ -15,12 +15,22 @@ type LeftPanelProps = {
   activeTool: ToolKey;
   isOpen: boolean;
   onCollapse: () => void;
+  onGeneratedImage: (image: {
+    requestId: string;
+    status: "loading" | "ready" | "error";
+    prompt: string;
+    src?: string;
+    sourceType?: "data-url" | "url";
+  }) => void;
 };
 
-function renderPanelByTool(activeTool: ToolKey) {
+function renderPanelByTool(
+  activeTool: ToolKey,
+  onGeneratedImage: LeftPanelProps["onGeneratedImage"],
+) {
   switch (activeTool) {
     case "inspiration":
-      return <InspirationPanel />;
+      return <InspirationPanel onGeneratedImage={onGeneratedImage} />;
     case "analysis":
       return <AnalysisPanel />;
     case "attribute":
@@ -34,7 +44,7 @@ function renderPanelByTool(activeTool: ToolKey) {
   }
 }
 
-export function LeftPanel({ activeTool, isOpen, onCollapse }: LeftPanelProps) {
+export function LeftPanel({ activeTool, isOpen, onCollapse, onGeneratedImage }: LeftPanelProps) {
   if (!isOpen) {
     return null;
   }
@@ -52,7 +62,9 @@ export function LeftPanel({ activeTool, isOpen, onCollapse }: LeftPanelProps) {
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">{renderPanelByTool(activeTool)}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {renderPanelByTool(activeTool, onGeneratedImage)}
+      </div>
     </Card>
   );
 }

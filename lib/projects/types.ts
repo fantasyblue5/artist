@@ -1,4 +1,5 @@
 import type { EditorObject, Stroke } from "@/types/editor";
+import type { SavedAnalysisConversation } from "@/components/workspace/analysis/types";
 
 export type ProjectPreset = "1:1" | "4:3" | "16:9" | "A4";
 
@@ -33,6 +34,13 @@ export type CanvasDocState = {
   objects: EditorObject[];
   strokes: Stroke[];
   activeFrameId: string | null;
+  historyItems?: Array<{
+    id: string;
+    imageSrc: string;
+    prompt?: string;
+    createdAt: string;
+  }>;
+  analysisConversations?: SavedAnalysisConversation[];
 };
 
 export type CanvasDoc = {
@@ -46,5 +54,7 @@ export function emptyCanvasDocState(): CanvasDocState {
     objects: [],
     strokes: [],
     activeFrameId: null,
+    historyItems: [],
+    analysisConversations: [],
   };
 }

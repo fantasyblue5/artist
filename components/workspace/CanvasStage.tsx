@@ -17,6 +17,7 @@ import type {
   EditorObject,
   EditorTool,
   FrameObject,
+  ImageObject,
   Point,
   Stroke,
   TextObject,
@@ -59,6 +60,15 @@ type EditorDoc = CanvasDocState;
 
 type CanvasStageProps = {
   initialDoc?: CanvasDocState;
+  generatedImageRequest?: {
+    requestId: string;
+    status: "loading" | "ready" | "error";
+    prompt: string;
+    src?: string;
+    sourceType?: "data-url" | "url";
+    insertedLabel?: string;
+  } | null;
+  emptyMessage?: string | null;
   onDocChange?: (doc: CanvasDocState) => void;
   onSnapshotProvider?: (getSnapshot: () => string | null) => void;
 };
@@ -81,6 +91,48 @@ type BrushSettings = {
   opacity: number;
   brushType: BrushType;
 };
+
+type GenerationPreview = {
+  requestId: string;
+  frameId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  prompt: string;
+};
+
+const IMAGE_PLACEMENT_OFFSETS: Point[] = [
+  { x: 0, y: 0 },
+  { x: 48, y: 48 },
+  { x: -48, y: 48 },
+  { x: 48, y: -48 },
+  { x: -48, y: -48 },
+  { x: 96, y: 0 },
+  { x: 0, y: 96 },
+  { x: -96, y: 0 },
+  { x: 0, y: -96 },
+];
+
+function isSameGenerationPreview(a: GenerationPreview | null, b: GenerationPreview | null) {
+  if (a === b) {
+    return true;
+  }
+
+  if (!a || !b) {
+    return false;
+  }
+
+  return (
+    a.requestId === b.requestId &&
+    a.frameId === b.frameId &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.prompt === b.prompt
+  );
+}
 
 type TextSettings = {
   fontFamily: string;
@@ -136,6 +188,8 @@ const RESIZE_HANDLE_META: Array<{ handle: ResizeHandle; className: string }> = [
   { handle: "se", className: "-bottom-1.5 -right-1.5 cursor-nwse-resize" },
 ];
 
+const FLOATING_OBJECT_FRAME_ID = "__stage__";
+
 function normalizeFrame(start: Point, end: Point) {
   const x = Math.min(start.x, end.x);
   const y = Math.min(start.y, end.y);
@@ -150,6 +204,95 @@ function frameObjectsOf(objects: EditorObject[]) {
 
 function getObjectById(objects: EditorObject[], id: string) {
   return objects.find((obj) => obj.id === id) ?? null;
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (max < min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+}
+
+function extractTrailingNumber(value: string) {
+  const match = value.match(/(\d+)(?!.*\d)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function createUniqueId(baseId: string, usedIds: Set<string>) {
+  if (!usedIds.has(baseId)) {
+    usedIds.add(baseId);
+    return baseId;
+  }
+
+  const prefixMatch = baseId.match(/^(.*?)(?:-(\d+))?$/);
+  const prefix = prefixMatch?.[1] || baseId;
+  let nextNumber = Math.max(1, extractTrailingNumber(baseId));
+  let candidate = `${prefix}-${nextNumber}`;
+
+  while (usedIds.has(candidate)) {
+    nextNumber += 1;
+    candidate = `${prefix}-${nextNumber}`;
+  }
+
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function normalizeDocIdentifiers(doc: EditorDoc): EditorDoc {
+  const usedObjectIds = new Set<string>();
+  const usedStrokeIds = new Set<string>();
+  let nextActiveFrameId = doc.activeFrameId;
+
+  const objects = doc.objects.map((object) => {
+    const nextId = createUniqueId(object.id, usedObjectIds);
+    if (nextId === object.id) {
+      return object;
+    }
+
+    if (object.type === "frame" && nextActiveFrameId === object.id) {
+      nextActiveFrameId = nextId;
+    }
+
+    return {
+      ...object,
+      id: nextId,
+    };
+  });
+
+  const strokes = doc.strokes.map((stroke) => {
+    const nextId = createUniqueId(stroke.id, usedStrokeIds);
+    return nextId === stroke.id ? stroke : { ...stroke, id: nextId };
+  });
+
+  return {
+    ...doc,
+    objects,
+    strokes,
+    activeFrameId: nextActiveFrameId,
+  };
+}
+
+function getNextPointerCounter(doc: EditorDoc) {
+  const objectMax = doc.objects.reduce((max, object) => Math.max(max, extractTrailingNumber(object.id)), 0);
+  const strokeMax = doc.strokes.reduce((max, stroke) => Math.max(max, extractTrailingNumber(stroke.id)), 0);
+  return Math.max(objectMax, strokeMax, 0) + 1;
+}
+
+function getNextFrameCounter(doc: EditorDoc) {
+  const frameIndexMax = doc.objects.reduce(
+    (max, object) => (object.type === "frame" ? Math.max(max, extractTrailingNumber(object.name)) : max),
+    0,
+  );
+  const frameCount = doc.objects.filter((object) => object.type === "frame").length;
+  return Math.max(frameIndexMax, frameCount) + 1;
+}
+
+function getNextAnnotationCounter(doc: EditorDoc) {
+  const maxIndex = doc.objects.reduce(
+    (max, object) => (object.type === "annotation" ? Math.max(max, object.index) : max),
+    0,
+  );
+  return maxIndex + 1;
 }
 
 function ensureActiveFrame(doc: EditorDoc): EditorDoc {
@@ -482,6 +625,29 @@ function resizeFrameRect(
   return { x, y, width, height };
 }
 
+function resizeImageRect(
+  before: ImageObject,
+  handle: ResizeHandle,
+  deltaX: number,
+  deltaY: number,
+): Pick<ImageObject, "x" | "y" | "width" | "height"> {
+  const minWidth = 80;
+  const minHeight = 80;
+  const rawWidth = handle.includes("w") ? before.width - deltaX : before.width + deltaX;
+  const rawHeight = handle.includes("n") ? before.height - deltaY : before.height + deltaY;
+  const scaleFromWidth = rawWidth / Math.max(1, before.width);
+  const scaleFromHeight = rawHeight / Math.max(1, before.height);
+  const useWidthScale = Math.abs(scaleFromWidth - 1) >= Math.abs(scaleFromHeight - 1);
+  const minScale = Math.max(minWidth / Math.max(1, before.width), minHeight / Math.max(1, before.height));
+  const nextScale = Math.max(minScale, useWidthScale ? scaleFromWidth : scaleFromHeight);
+  const width = Math.max(minWidth, Math.round(before.width * nextScale));
+  const height = Math.max(minHeight, Math.round(before.height * nextScale));
+  const x = handle.includes("w") ? before.x + before.width - width : before.x;
+  const y = handle.includes("n") ? before.y + before.height - height : before.y;
+
+  return { x, y, width, height };
+}
+
 function pushRecentColor(list: string[], nextColor: string) {
   const normalized = nextColor.toLowerCase();
   const filtered = list.filter((item) => item.toLowerCase() !== normalized);
@@ -528,7 +694,171 @@ function getDocWorldBounds(doc: EditorDoc): ViewportBounds | null {
   };
 }
 
-export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: CanvasStageProps) {
+function loadImageDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width || 1024,
+        height: image.naturalHeight || image.height || 1024,
+      });
+    };
+    image.onerror = () => reject(new Error("图片加载失败"));
+    image.src = src;
+  });
+}
+
+function fitImageSizeIntoBounds(
+  bounds: { width: number; height: number },
+  naturalSize?: { width: number; height: number },
+) {
+  const aspect =
+    naturalSize && naturalSize.width > 0 && naturalSize.height > 0
+      ? naturalSize.width / naturalSize.height
+      : 1;
+
+  let width = bounds.width;
+  let height = width / Math.max(0.01, aspect);
+
+  if (height > bounds.height) {
+    height = bounds.height;
+    width = height * aspect;
+  }
+
+  width = Math.max(120, Math.round(width));
+  height = Math.max(120, Math.round(height));
+
+  return { width, height };
+}
+
+function getImagePlacement(frame: FrameObject, naturalSize?: { width: number; height: number }) {
+  const { width, height } = fitImageSizeIntoBounds(
+    {
+      width: frame.width * 0.84,
+      height: frame.height * 0.84,
+    },
+    naturalSize,
+  );
+
+  return {
+    width,
+    height,
+    x: frame.x + (frame.width - width) / 2,
+    y: frame.y + (frame.height - height) / 2,
+  };
+}
+
+function getFloatingImagePlacement(
+  viewport: Viewport,
+  canvasSize: { width: number; height: number },
+  naturalSize?: { width: number; height: number },
+) {
+  const centerWorld = screenToWorldPoint(
+    { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+    viewport,
+  );
+  const visibleWorldWidth = canvasSize.width / Math.max(0.2, viewport.scale);
+  const visibleWorldHeight = canvasSize.height / Math.max(0.2, viewport.scale);
+  const { width, height } = fitImageSizeIntoBounds(
+    {
+      width: visibleWorldWidth * 0.42,
+      height: visibleWorldHeight * 0.42,
+    },
+    naturalSize,
+  );
+
+  return {
+    x: centerWorld.x - width / 2,
+    y: centerWorld.y - height / 2,
+    width,
+    height,
+  };
+}
+
+function getFrameById(doc: EditorDoc, frameId: string | null | undefined) {
+  if (!frameId || frameId === FLOATING_OBJECT_FRAME_ID) {
+    return null;
+  }
+
+  return doc.objects.find((object): object is FrameObject => object.type === "frame" && object.id === frameId) ?? null;
+}
+
+function toPreviewPlacement(preview: GenerationPreview) {
+  return {
+    x: preview.x,
+    y: preview.y,
+    width: preview.width,
+    height: preview.height,
+  };
+}
+
+function placementsOverlap(
+  placement: { x: number; y: number; width: number; height: number },
+  image: ImageObject,
+) {
+  const overlapWidth =
+    Math.min(placement.x + placement.width, image.x + image.width) - Math.max(placement.x, image.x);
+  const overlapHeight =
+    Math.min(placement.y + placement.height, image.y + image.height) - Math.max(placement.y, image.y);
+
+  if (overlapWidth <= 0 || overlapHeight <= 0) {
+    return false;
+  }
+
+  const overlapArea = overlapWidth * overlapHeight;
+  return overlapArea > Math.min(placement.width * placement.height, image.width * image.height) * 0.2;
+}
+
+function offsetPlacement(
+  basePlacement: { x: number; y: number; width: number; height: number },
+  delta: Point,
+  frame: FrameObject | null,
+) {
+  const nextX = basePlacement.x + delta.x;
+  const nextY = basePlacement.y + delta.y;
+
+  if (!frame) {
+    return {
+      ...basePlacement,
+      x: nextX,
+      y: nextY,
+    };
+  }
+
+  return {
+    ...basePlacement,
+    x: clamp(nextX, frame.x, frame.x + frame.width - basePlacement.width),
+    y: clamp(nextY, frame.y, frame.y + frame.height - basePlacement.height),
+  };
+}
+
+function findAvailableImagePlacement(
+  doc: EditorDoc,
+  basePlacement: { x: number; y: number; width: number; height: number },
+  frame: FrameObject | null,
+) {
+  const frameId = frame?.id ?? FLOATING_OBJECT_FRAME_ID;
+  const existingImages = doc.objects.filter(
+    (object): object is ImageObject => object.type === "image" && object.frameId === frameId,
+  );
+
+  for (const delta of IMAGE_PLACEMENT_OFFSETS) {
+    const candidate = offsetPlacement(basePlacement, delta, frame);
+    if (!existingImages.some((image) => placementsOverlap(candidate, image))) {
+      return candidate;
+    }
+  }
+
+  return offsetPlacement(basePlacement, { x: existingImages.length * 40, y: existingImages.length * 40 }, frame);
+}
+
+export function CanvasStage({
+  initialDoc,
+  generatedImageRequest,
+  emptyMessage = "按 F 或点击 Frame 工具创建画布",
+  onDocChange,
+  onSnapshotProvider,
+}: CanvasStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const editorOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -545,11 +875,13 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
 
   const [doc, setDoc] = useState<EditorDoc>(
     ensureActiveFrame(
-      initialDoc ?? {
-        objects: [],
-        strokes: [],
-        activeFrameId: null,
-      },
+      normalizeDocIdentifiers(
+        initialDoc ?? {
+          objects: [],
+          strokes: [],
+          activeFrameId: null,
+        },
+      ),
     ),
   );
   const docRef = useRef(doc);
@@ -567,6 +899,7 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
   const [draftStroke, setDraftStroke] = useState<Stroke | null>(null);
   const [draftFrame, setDraftFrame] = useState<DraftFrame | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [generationPreview, setGenerationPreview] = useState<GenerationPreview | null>(null);
   const draftStrokeRef = useRef<Stroke | null>(null);
   const draftFrameRef = useRef<DraftFrame | null>(null);
 
@@ -593,6 +926,8 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
 
   const undoStackRef = useRef<HistoryAction[]>([]);
   const redoStackRef = useRef<HistoryAction[]>([]);
+  const handledGeneratedImageRef = useRef<string | null>(null);
+  const pendingGeneratedImageRef = useRef<string | null>(null);
   const [, setHistoryTick] = useState(0);
 
   const panStateRef = useRef<{
@@ -606,6 +941,11 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
     id: string;
     startWorld: Point;
     before: EditorObject;
+  } | null>(null);
+  const generationPreviewDragRef = useRef<{
+    pointerId: number;
+    startWorld: Point;
+    before: GenerationPreview;
   } | null>(null);
 
   const textResizeRef = useRef<{
@@ -621,6 +961,14 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
     id: string;
     startWorld: Point;
     before: FrameObject;
+    handle: ResizeHandle;
+  } | null>(null);
+
+  const imageResizeRef = useRef<{
+    pointerId: number;
+    id: string;
+    startWorld: Point;
+    before: ImageObject;
     handle: ResizeHandle;
   } | null>(null);
 
@@ -640,6 +988,9 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
 
   useEffect(() => {
     docRef.current = doc;
+    pointerCounterRef.current = Math.max(pointerCounterRef.current, getNextPointerCounter(doc));
+    frameCounterRef.current = Math.max(frameCounterRef.current, getNextFrameCounter(doc));
+    annotationCounterRef.current = Math.max(annotationCounterRef.current, getNextAnnotationCounter(doc));
   }, [doc]);
 
   useEffect(() => {
@@ -647,12 +998,16 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
       return;
     }
 
-    const hydrated = ensureActiveFrame(initialDoc);
+    const hydrated = ensureActiveFrame(normalizeDocIdentifiers(initialDoc));
     setDoc(hydrated);
     docRef.current = hydrated;
+    pointerCounterRef.current = getNextPointerCounter(hydrated);
+    frameCounterRef.current = getNextFrameCounter(hydrated);
+    annotationCounterRef.current = getNextAnnotationCounter(hydrated);
     setSelection(null);
     setHoverId(null);
     setEditingId(null);
+    setGenerationPreview(null);
     editingSessionRef.current = null;
     undoStackRef.current = [];
     redoStackRef.current = [];
@@ -710,6 +1065,192 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
     () => frameObjects.find((frame) => frame.id === doc.activeFrameId) ?? null,
     [doc.activeFrameId, frameObjects],
   );
+
+  useEffect(() => {
+    if (!generatedImageRequest) {
+      return;
+    }
+
+    if (generatedImageRequest.status === "loading") {
+      setGenerationPreview((prev) => {
+        if (prev?.requestId === generatedImageRequest.requestId) {
+          return prev;
+        }
+
+        const basePlacement = activeFrame
+          ? getImagePlacement(activeFrame)
+          : getFloatingImagePlacement(viewport, canvasSize);
+        const placement = findAvailableImagePlacement(docRef.current, basePlacement, activeFrame);
+        const nextPreview: GenerationPreview = {
+          requestId: generatedImageRequest.requestId,
+          frameId: activeFrame?.id ?? FLOATING_OBJECT_FRAME_ID,
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          height: placement.height,
+          prompt: generatedImageRequest.prompt,
+        };
+        console.info("[CanvasStage] generation preview created", nextPreview);
+        return isSameGenerationPreview(prev, nextPreview) ? prev : nextPreview;
+      });
+      return;
+    }
+
+    if (generatedImageRequest.status === "error") {
+      console.warn("[CanvasStage] generation preview cleared after error", {
+        requestId: generatedImageRequest.requestId,
+      });
+      generationPreviewDragRef.current = null;
+      setGenerationPreview((prev) =>
+        prev?.requestId === generatedImageRequest.requestId ? null : prev,
+      );
+      return;
+    }
+
+    if (!generatedImageRequest.src || !generatedImageRequest.sourceType) {
+      return;
+    }
+
+    const generatedImageSrc = generatedImageRequest.src;
+    const generatedImageSourceType = generatedImageRequest.sourceType;
+
+    if (
+      handledGeneratedImageRef.current === generatedImageRequest.requestId ||
+      pendingGeneratedImageRef.current === generatedImageRequest.requestId
+    ) {
+      return;
+    }
+    pendingGeneratedImageRef.current = generatedImageRequest.requestId;
+
+    let cancelled = false;
+
+    const insertImage = async () => {
+      try {
+        console.info("[CanvasStage] insert generated image start", {
+          requestId: generatedImageRequest.requestId,
+          sourceType: generatedImageSourceType,
+          hasActiveFrame: Boolean(activeFrame),
+          canvasSize,
+          viewport,
+        });
+        let naturalSize: { width: number; height: number } | undefined;
+        let preloadFailed = false;
+
+        try {
+          naturalSize = await loadImageDimensions(generatedImageSrc);
+          console.info("[CanvasStage] generated image dimensions loaded", {
+            requestId: generatedImageRequest.requestId,
+            naturalSize,
+          });
+        } catch (error) {
+          preloadFailed = true;
+          console.warn("[CanvasStage] image preload failed", {
+            requestId: generatedImageRequest.requestId,
+            message: error instanceof Error ? error.message : "unknown",
+          });
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        const previewPlacement =
+          generationPreview?.requestId === generatedImageRequest.requestId ? generationPreview : null;
+        const previewFrame = getFrameById(docRef.current, previewPlacement?.frameId);
+        const targetFrame = previewFrame ?? activeFrame ?? null;
+        const basePlacement = targetFrame
+          ? getImagePlacement(targetFrame, naturalSize)
+          : getFloatingImagePlacement(viewport, canvasSize, naturalSize);
+        const placement = previewPlacement
+          ? toPreviewPlacement(previewPlacement)
+          : findAvailableImagePlacement(docRef.current, basePlacement, targetFrame);
+        const targetFrameId = previewFrame?.id ?? targetFrame?.id ?? FLOATING_OBJECT_FRAME_ID;
+
+        const imageObject: ImageObject = {
+          id: `image-${pointerCounterRef.current++}`,
+          type: "image",
+          frameId: targetFrameId,
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          height: placement.height,
+          src: generatedImageSrc,
+          alt: generatedImageRequest.prompt,
+          generationSlot: "inspiration",
+        };
+
+        console.info("[CanvasStage] image object created", {
+          requestId: generatedImageRequest.requestId,
+          frameId: targetFrameId,
+          placement,
+          previewFrameId: previewPlacement?.frameId,
+        });
+        performAction({ type: "addObject", object: imageObject });
+        setSelection({ kind: "object", id: imageObject.id });
+        setTool("select");
+        handledGeneratedImageRef.current = generatedImageRequest.requestId;
+        generationPreviewDragRef.current = null;
+        setGenerationPreview((prev) =>
+          prev?.requestId === generatedImageRequest.requestId ? null : prev,
+        );
+
+        const focusBounds = targetFrame
+          ? {
+              x: targetFrame.x,
+              y: targetFrame.y,
+              width: targetFrame.width,
+              height: targetFrame.height,
+            }
+          : {
+              x: placement.x,
+              y: placement.y,
+              width: placement.width,
+              height: placement.height,
+            };
+        const nextViewport = fitViewportToBounds(focusBounds, canvasSize, {
+          padding: 56,
+          minScale: 0.2,
+          maxScale: 4,
+        });
+        if (nextViewport) {
+          console.info("[CanvasStage] viewport recentered to generated image frame", {
+            requestId: generatedImageRequest.requestId,
+            nextViewport,
+            mode: targetFrame ? "frame" : "floating-image",
+          });
+          setViewport(nextViewport);
+        }
+
+        const insertedLabel = generatedImageRequest.insertedLabel ?? "生成图片";
+        setStatusMessage(
+          preloadFailed
+            ? "图片已插入，但预加载失败，请检查接口返回的图片格式"
+            : targetFrame
+              ? `${insertedLabel}已放置到当前画布中央`
+              : `${insertedLabel}已放置到当前视口中央`,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "生成图片插入失败";
+          console.error("[CanvasStage] insert generated image failed", {
+            requestId: generatedImageRequest.requestId,
+            message,
+          });
+          setStatusMessage(message);
+        }
+      } finally {
+        if (pendingGeneratedImageRef.current === generatedImageRequest.requestId) {
+          pendingGeneratedImageRef.current = null;
+        }
+      }
+    };
+
+    void insertImage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFrame, canvasSize, generatedImageRequest, generationPreview, viewport]);
 
   const selectedObject = useMemo(() => {
     if (selection?.kind !== "object") {
@@ -794,8 +1335,10 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
   const clearTransientStates = () => {
     panStateRef.current = null;
     objectDragRef.current = null;
+    generationPreviewDragRef.current = null;
     textResizeRef.current = null;
     frameResizeRef.current = null;
+    imageResizeRef.current = null;
     brushPointerRef.current = null;
     framePointerRef.current = null;
     eraserSessionRef.current = null;
@@ -1049,6 +1592,7 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
 
     performAction({ type: "addObject", object: frame });
     setSelection({ kind: "object", id: frame.id });
+    return frame;
   };
 
   const eraseBySmearAtPoint = (worldPoint: Point, frameId: string) => {
@@ -1562,6 +2106,24 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
       return;
     }
 
+    const previewDragState = generationPreviewDragRef.current;
+    if (previewDragState?.pointerId === event.pointerId) {
+      const deltaX = worldPoint.x - previewDragState.startWorld.x;
+      const deltaY = worldPoint.y - previewDragState.startWorld.y;
+      setGenerationPreview((prev) => {
+        if (!prev || prev.requestId !== previewDragState.before.requestId) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          x: previewDragState.before.x + deltaX,
+          y: previewDragState.before.y + deltaY,
+        };
+      });
+      return;
+    }
+
     if (brushPointerRef.current === event.pointerId) {
       setDraftStroke((prev) => {
         if (!prev) {
@@ -1652,6 +2214,23 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
           ...nextRect,
         };
       });
+      return;
+    }
+
+    const imageResizeState = imageResizeRef.current;
+    if (imageResizeState?.pointerId === event.pointerId) {
+      const deltaX = worldPoint.x - imageResizeState.startWorld.x;
+      const deltaY = worldPoint.y - imageResizeState.startWorld.y;
+      const nextRect = resizeImageRect(imageResizeState.before, imageResizeState.handle, deltaX, deltaY);
+      updateObjectLive(imageResizeState.id, (obj) => {
+        if (obj.type !== "image") {
+          return obj;
+        }
+        return {
+          ...obj,
+          ...nextRect,
+        };
+      });
     }
   };
 
@@ -1731,6 +2310,12 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
       releasePointerIfNeeded(event);
     }
 
+    const previewDragState = generationPreviewDragRef.current;
+    if (previewDragState?.pointerId === event.pointerId) {
+      generationPreviewDragRef.current = null;
+      releasePointerIfNeeded(event);
+    }
+
     const resizeState = textResizeRef.current;
     if (resizeState?.pointerId === event.pointerId) {
       textResizeRef.current = null;
@@ -1742,6 +2327,13 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
     if (frameResizeState?.pointerId === event.pointerId) {
       frameResizeRef.current = null;
       finalizeObjectUpdateHistory(frameResizeState.before, frameResizeState.id);
+      releasePointerIfNeeded(event);
+    }
+
+    const imageResizeState = imageResizeRef.current;
+    if (imageResizeState?.pointerId === event.pointerId) {
+      imageResizeRef.current = null;
+      finalizeObjectUpdateHistory(imageResizeState.before, imageResizeState.id);
       releasePointerIfNeeded(event);
     }
   };
@@ -1847,6 +2439,32 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
     };
   };
 
+  const startImageResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+    object: ImageObject,
+    handle: ResizeHandle,
+  ) => {
+    event.stopPropagation();
+
+    if (tool !== "select") {
+      return;
+    }
+
+    const stage = containerRef.current;
+    if (stage) {
+      stage.setPointerCapture(event.pointerId);
+    }
+
+    const worldPoint = screenToWorldPoint(getLocalPoint(event), viewport);
+    imageResizeRef.current = {
+      pointerId: event.pointerId,
+      id: object.id,
+      startWorld: worldPoint,
+      before: object,
+      handle,
+    };
+  };
+
   const handleObjectHoverEnter = (id: string) => {
     if (tool === "select") {
       setHoverId(id);
@@ -1855,6 +2473,26 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
 
   const handleObjectHoverLeave = (id: string) => {
     setHoverId((prev) => (prev === id ? null : prev));
+  };
+
+  const handleGenerationPreviewPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || !generationPreview) {
+      return;
+    }
+
+    event.stopPropagation();
+
+    const stage = containerRef.current;
+    if (stage) {
+      stage.setPointerCapture(event.pointerId);
+    }
+
+    const worldPoint = screenToWorldPoint(getLocalPoint(event), viewport);
+    generationPreviewDragRef.current = {
+      pointerId: event.pointerId,
+      startWorld: worldPoint,
+      before: generationPreview,
+    };
   };
 
   const handleTextValueChange = (id: string, value: string) => {
@@ -2014,6 +2652,70 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
             );
           }
 
+          if (object.type === "image") {
+            const isInteractive = tool === "select";
+            return (
+              <div
+                key={object.id}
+                className={cn(
+                  "absolute overflow-hidden rounded-lg bg-white/80",
+                  isSelected
+                    ? "ring-2 ring-[hsl(var(--primary))]"
+                    : isHovered
+                      ? "ring-1 ring-[hsl(var(--primary)/0.45)]"
+                      : "",
+                  isInteractive ? "pointer-events-auto cursor-pointer" : "pointer-events-none",
+                )}
+                style={{
+                  left: object.x,
+                  top: object.y,
+                  width: object.width,
+                  height: object.height,
+                }}
+                onPointerDown={(event) => handleObjectPointerDown(event, object)}
+                onPointerEnter={() => handleObjectHoverEnter(object.id)}
+                onPointerLeave={() => handleObjectHoverLeave(object.id)}
+              >
+                <img
+                  src={object.src}
+                  alt={object.alt || "AI生成图片"}
+                  draggable={false}
+                  crossOrigin="anonymous"
+                  className="h-full w-full select-none object-cover"
+                  onLoad={() => {
+                    console.info("[CanvasStage] image rendered", {
+                      objectId: object.id,
+                      frameId: object.frameId,
+                      width: object.width,
+                      height: object.height,
+                      srcPreview: object.src.slice(0, 120),
+                    });
+                  }}
+                  onError={() => {
+                    console.error("[CanvasStage] image render failed", {
+                      objectId: object.id,
+                      frameId: object.frameId,
+                      srcPreview: object.src.slice(0, 120),
+                    });
+                  }}
+                />
+
+                {isSelected
+                  ? RESIZE_HANDLE_META.map((item) => (
+                      <div
+                        key={item.handle}
+                        className={cn(
+                          "pointer-events-auto absolute h-3 w-3 rounded-full border border-[hsl(var(--primary))] bg-[hsl(var(--card))]",
+                          item.className,
+                        )}
+                        onPointerDown={(event) => startImageResize(event, object, item.handle)}
+                      />
+                    ))
+                  : null}
+              </div>
+            );
+          }
+
           const isInteractive = tool === "select" || tool === "annotate" || isEditing;
           return (
             <div
@@ -2137,10 +2839,42 @@ export function CanvasStage({ initialDoc, onDocChange, onSnapshotProvider }: Can
         </div>
       ) : null}
 
-      {frameObjects.length === 0 ? (
+      {generationPreview ? (
+        <div className="pointer-events-none absolute inset-0 z-[7]" style={worldLayerStyle}>
+          <div
+            className="pointer-events-auto absolute cursor-move overflow-hidden rounded-[28px] border border-[rgba(136,168,205,0.55)] bg-[linear-gradient(145deg,rgba(246,249,252,0.88),rgba(224,233,242,0.82))] shadow-[0_24px_60px_rgba(75,97,126,0.24)]"
+            style={{
+              left: generationPreview.x,
+              top: generationPreview.y,
+              width: generationPreview.width,
+              height: generationPreview.height,
+            }}
+            onPointerDown={handleGenerationPreviewPointerDown}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.92),transparent_58%)]" />
+            <div className="absolute inset-0 animate-pulse bg-[linear-gradient(135deg,rgba(83,118,162,0.14),rgba(232,180,84,0.18),rgba(118,170,132,0.14))]" />
+            <div className="relative flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+              <div className="relative grid h-20 w-20 place-items-center [animation:workspace-loader-float_2.4s_ease-in-out_infinite]">
+                <div className="absolute inset-[3px] rounded-full bg-[conic-gradient(from_180deg,#476f9e,#7fb0d6,#d1a849,#79aa84,#476f9e)] opacity-35 blur-[8px] [animation:workspace-loader-spin_1.15s_linear_infinite]" />
+                <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_180deg,#476f9e,#7fb0d6,#d1a849,#79aa84,#476f9e)] [animation:workspace-loader-spin_1.15s_linear_infinite]" />
+                <div className="absolute inset-[10px] rounded-full bg-[rgba(241,246,251,0.92)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.72)]" />
+                <div className="absolute inset-[10px] rounded-full border border-[rgba(71,111,158,0.1)]" />
+                <div className="absolute inset-[15px] [animation:workspace-loader-orbit_2.8s_linear_infinite]">
+                  <div className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#f7fbff] shadow-[0_0_0_4px_rgba(255,255,255,0.24),0_4px_12px_rgba(95,129,168,0.26)]" />
+                </div>
+              </div>
+              <p className="bg-[linear-gradient(90deg,#476f9e,#7fb0d6,#d1a849,#476f9e)] bg-[length:220%_100%] bg-clip-text text-xl font-semibold tracking-[0.08em] text-transparent [animation:workspace-gradient-shift_2.2s_linear_infinite]">
+                生成中...
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {emptyMessage && frameObjects.length === 0 && doc.objects.length === 0 && doc.strokes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 z-[5] grid place-items-center">
           <p className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/0.95)] px-4 py-2 text-sm text-[hsl(var(--muted-foreground))]">
-            按 F 或点击 Frame 工具创建画布
+            {emptyMessage}
           </p>
         </div>
       ) : null}
